@@ -14,16 +14,16 @@ hook_before = None
 hook_after = None
 
 
-def find(obj, path="", root=None, expand=False, context=False, filt=None):
+def find(obj, path="", root=None, expand=False, context=False, filt=None, strict=False):
     if not root:
         root = obj
     parts = splitPath(path)
     
-    for node in _walk(Node('', None, None, obj), parts, expander=DEFAULT_EXPANDER(root)):
+    for node in _walk(Node('', None, None, obj), parts, expander=DEFAULTexpandER(root), strict=strict):
         if filt and not filt(node):
             continue
         if expand:
-            value=_expand(node.value, root, expand)
+            value=expand(node.value, root, expand)
             node = Node(node.path, node.parent, node.key, value)
         if context:
             yield node
@@ -35,7 +35,7 @@ def get(obj, path="", root=None, expand=False, context=False):
     if '*' in parts:
         raise Exception('No wildcards allowed in getter path!')
         
-    return next(find(obj, path, root, expand, context))
+    return next(find(obj, path, root, expand, context, strict=True))
  
 def splitPath(path):
     parts = path.strip('/').split('/')
@@ -45,7 +45,7 @@ def splitPath(path):
 
 
 
-def _walk(node, parts, expander):
+def _walk(node, parts, expander, strict=False):
     """Walks down the tree according to the path.
     parts -- the path split in a list of strings
     expander -- when a reference node is encountered, the expander will be called like expander(ref) and expects the node's value in return. If None, nodes will not be expanded.
@@ -68,48 +68,66 @@ def _walk(node, parts, expander):
                 keys = range(len(current)-1,-1,-1) # we need to iterate in reverse in case these get deleted on the fly
             else:
                 if not key.isdigit():
-                    raise Exception("Digits expected in path instead of " + key + " at: " + node.path)
+                    if strict:
+                        raise Exception("Digits expected in path instead of '" + key + "' at: " + node.path)
+                    else:
+                        return
                 n = int(key)
                 if n >= len(current):
-                    raise Exception("No such index at path: %s/%d" % (node.path, n))
+                    if strict:
+                        raise Exception("No such index at path: %s/%d" % (node.path, n))
+                    else:
+                        return
                 keys = [ n ]
         elif isinstance(current, dict):
             if key == '*':
                 keys = current.keys()
             elif key not in current:
-                raise Exception("No such path: " + node.path + "/" + key)
+                if strict:
+                    raise Exception("No such path: " + node.path + "/" + key)
+                else:
+                    return
             else:
                 keys = [ key ]
         
         for key in keys:
             path = node.path + '/' + str(key)
             child = Node(path, current, key, current[key])
-            for hit in _walk(child, tail, expander):
+            for hit in _walk(child, tail, expander, strict):
                 yield hit
         
     if hook_after:
         hook_after(node)
                     
-
-def _expand(obj, root, depth=1):
+# the cache is provided to avoid endless loops because of recursive references
+def expand(obj, root=None, depth=1, cache=set()):
+    if not root:
+        root = obj
+    
     if depth == True:
         depth = 1
     elif depth <= 0:
         return obj
     
     if isRef(obj):
-        trg = _getRef(obj['$ref'], root, external=True)
-        return _expand(trg, root, depth-1)
+        ref = obj['$ref']
+        if ref not in cache and depth > 0:
+            trg = _getRef(ref, root, external=True)
+            cache = cache.copy()
+            cache.add(ref)
+            return expand(trg, root, depth-1, cache)
+        else:
+            return obj
     
     if isinstance(obj,dict):
         trg = {}
         for (k,v) in obj.items():
-            trg[k] = _expand(v, root, depth)
+            trg[k] = expand(v, root, depth, cache)
         return trg
     elif isinstance(obj,list):
         trg = []
         for val in obj:
-            trg.append( _expand(val, root, depth) )
+            trg.append( expand(val, root, depth, cache) )
         return trg
     else:
         return obj
@@ -120,7 +138,7 @@ def apply(fun, obj, path, root, filt):
         root = obj
     parts = splitPath(path)
     modified = []
-    for node in _walk(Node('', None, None, obj), parts, expander=None):
+    for node in _walk(Node('', None, None, obj), parts, expander=None, strict=False):
         if filt and not filt(node):
             continue
         fun(node)
@@ -154,16 +172,17 @@ def add(obj, path, value, root=None, filt=None):
 def delete(obj, path, root=None, filt=None):
     parts = splitPath(path)
     def _delete(node):
-        del node.value[ parts[-1] ]
+        if parts[-1] in node.value:
+            del node.value[ parts[-1] ]
     return apply(_delete, obj, '/'.join(parts[:-1]), root, filt)
 
 
 # expands all references
-def DEFAULT_EXPANDER(root):
+def DEFAULTexpandER(root):
     return lambda ref: _getRef(ref, root, True)
 
 # expands only local references
-def LOCAL_EXPANDER(root):
+def LOCALexpandER(root):
     return lambda ref: _getRef(ref, root, False)
 
 

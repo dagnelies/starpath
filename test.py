@@ -1,19 +1,54 @@
 import starpath
-import timeit
 
-### Get a value
-
-obj = {
-    'foo': {
-        'bar': 123
+users = {
+    'alice': {
+        'name': 'Alice',
+        'friends': [
+                {'$ref': '/bob'}
+            ]
+    },
+    'bob': {
+        'name': 'Bob',
+        'friends': [
+                {'$ref': '/alice'}
+            ]
+    },
+    'charlie': {
+        'name': 'Charlie',
+        'friends': []
+    },
+    'www_users': {
+        '$ref': 'http://www.w3schools.com/website/customers_mysql.php'
     }
 }
 
-assert starpath.get(obj, '/foo') == {'bar': 123}
+print( starpath.get(users, '/www_users/0') )
+assert starpath.get(users, '/www_users/0/Name') == "Alfreds Futterkiste"
 
-assert starpath.get(obj, '/foo/bar') == 123
 
+assert starpath.get(users, '/alice/name')                     == 'Alice'
+assert starpath.get(users, '/alice/friends/0/name')           == 'Bob'
+assert starpath.get(users, '/alice/friends/0/friends/0/name') == 'Alice'
 
+assert sorted(starpath.find(users, '/*/name'))           == ['Alice', 'Bob', 'Charlie']
+assert sorted(starpath.find(users, '/*/friends/*/name')) == ['Alice', 'Bob']
+
+starpath.add(users, 'bob/friends', {'$ref': '/charlie'})
+assert sorted(starpath.find(users, '/*/friends/*/name')) == ['Alice', 'Bob', 'Charlie']
+
+starpath.set(users, 'charlie/status', 'New')
+assert starpath.get(users, '/charlie/status') == 'New'
+
+starpath.set(users, 'charlie/status', 'Hmm')
+assert starpath.get(users, '/charlie/status') == 'Hmm'
+
+starpath.update(users, 'charlie', {'status':'Old'})
+assert starpath.get(users, '/charlie/status') == 'Old'
+
+starpath.delete(users, '*/status')
+assert starpath.get(users, '/charlie') == {'name': 'Charlie', 'friends': []}
+
+exit()
 ### Follow references
 
 obj = {
@@ -85,6 +120,7 @@ users = {
         ]
     }
 }
+
 
 assert starpath.find(users, '/*/name') != None #<iterator>
 
