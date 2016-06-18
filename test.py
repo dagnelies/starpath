@@ -29,7 +29,7 @@ assert starpath.get(obj, '/foo/2') == 22
 obj = {
     'foo': [
         {'$ref': '/bar/2'},
-        {'$ref': '/bar/1'},
+        {'$ref': '/foo/1'},
         {'$ref': '/bar/0'}
     ],
     'bar': [
@@ -39,9 +39,12 @@ obj = {
     ]
 }
 
-assert starpath.get(obj, '/foo', expand=False) == [{'$ref': '/bar/2'}, {'$ref': '/bar/1'}, {'$ref': '/bar/0'}]
 
-assert starpath.get(obj, '/foo', expand=True) == [222, 111, 0]
+print( starpath.get(obj, '/foo', expand=False) )
+assert starpath.get(obj, '/foo', expand=False) == [{'$ref': '/bar/2'}, {'$ref': '/foo/1'}, {'$ref': '/bar/0'}]
+
+print( starpath.get(obj, '/foo', expand=True) )
+assert starpath.get(obj, '/foo', expand=True) == [222, {'$ref': '/foo/1'}, 0]
 
 ### through HTTP
 
@@ -88,5 +91,14 @@ assert starpath.find(users, '/*/name') != None #<iterator>
 assert sorted(list(starpath.find(users, '/*/name'))) == ['Alice', 'Bob']
 
 assert list(starpath.find(users, '/alice/friends/*/name')) == ['Bob']
+
+starpath.set(users, '/bob/name', 'Bobby!')
+
+assert list(starpath.find(users, '/alice/friends/*/name')) == ['Bobby!']
+
+starpath.set(users, '/*/flag', True) 
+
+#starpath.set(users, '/foo', {'bar':1}) 
+print(users)
 
 print('Done')

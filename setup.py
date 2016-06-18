@@ -2,7 +2,7 @@ from distutils.core import setup
 setup(
   name = 'starpath',
   packages=['starpath'],
-  version = '1.0.2',
+  version = '1.1.5',
   description = 'JSON Pointers with wildcards!',
   author = 'Arnaud Dagnelies',
   author_email = 'arnaud.dagnelies@gmail.com',

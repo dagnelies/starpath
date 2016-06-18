@@ -3,37 +3,32 @@ try:
 except:
     import json
 from collections import namedtuple
+import urllib.request
 #from cnamedtuple import namedtuple
 
 import urllib.request
 
 Node = namedtuple('Node', 'path parent key value')
 
+hook_before = None
+hook_after = None
 
-#all:
-#    root=None
 
-#get/find:
-#    expand=False
-#    context=False
-
-    
-#######################################################################################
-#   GET
-#######################################################################################
-
-def find(obj, path="", root=None, expand=False, context=False):
+def find(obj, path="", root=None, expand=False, context=False, filt=None):
     if not root:
         root = obj
     parts = splitPath(path)
-    for node in _walk2(Node('', None, None, obj), parts, root=root):
+    
+    for node in _walk(Node('', None, None, obj), parts, expander=DEFAULT_EXPANDER(root)):
+        if filt and not filt(node):
+            continue
         if expand:
-            node = Node(node.path, node.parent, node.key, _expand(node.value, root))
+            value=_expand(node.value, root, expand)
+            node = Node(node.path, node.parent, node.key, value)
         if context:
             yield node
         else:
             yield node.value
-        
 
 def get(obj, path="", root=None, expand=False, context=False):
     parts = splitPath(path)
@@ -50,121 +45,156 @@ def splitPath(path):
 
 
 
-def _walk2(node, parts :list, root):
+def _walk(node, parts, expander):
+    """Walks down the tree according to the path.
+    parts -- the path split in a list of strings
+    expander -- when a reference node is encountered, the expander will be called like expander(ref) and expects the node's value in return. If None, nodes will not be expanded.
+    """
+    if hook_before:
+        hook_before(node)
+    
     if not parts:
         yield node
-        return
-    
-    key = parts[0]
-    tail = parts[1:]
-    current = node.value
-    
-    if isinstance(current, dict) and '$ref' in current:
-        current = _getRef( current, root )
-    
-    if key != '*':
-        path = node.path + '/' + key
-        if isinstance(current, list):
-            if not key.isdigit():
-                return
-                #raise Exception("Digits expected in path instead of " + key + " at: " + path)
-            key = int(key)
-            if key < len(current):
-                child = Node(path, current, key, current[key])
-                for hit in _walk2(child, tail, root):
-                    yield hit
-            else:
-                return
-                #raise Exception("No such path: " + path)
-        elif isinstance(current, dict):
-            if key in current:
-                child = Node(path, current, key, current[key])
-                for hit in _walk2(child, tail, root):
-                    yield hit
-            else:
-                return
-                #raise Exception("No such path: " + path)
-        else:
-            raise Exception("Unexpected primitive value at " + node.path)
-    
-    else: # wildcard
+    else:
+        key = parts[0]
+        tail = parts[1:]
+        current = node.value
+        
+        if expander and isRef(current):
+            current = expander( current['$ref'] )
         
         if isinstance(current, list):
-            # we need to iterate in reverse in case these get deleted on the fly
-            for key in range(len(current)-1,-1,-1):
-                path = node.path + '/' + str(key)
-                child = Node(path, current, key, current[key])
-                for hit in _walk2(child, tail, root):
-                    yield hit
-        elif isinstance(current, dict):
-            for (key, value) in current.items():
-                path = node.path + '/' + key
-                child = Node(path, current, key, value)
-                for hit in _walk2(child, tail, root):
-                    yield hit
-        else:
-            raise Exception("Unexpected primitive value at " + node.path)
-
-# this is a walk without context (parent/key)
-# it was used before the need to edit arose
-def _walk(parts, obj, pi=0, path=""):
-    if pi == len(parts):
-        yield (path, obj)
-        return
-    
-    p = parts[pi]
-    if p != '*':
-        if isinstance(obj,list):
-            if not p.isdigit():
-                raise "Digits expected in path instead of " + p + " (" + path + ")"
-            p = int(p)
-            if p < len(obj):
-                for item in _walk(parts, obj[p], pi+1, path + '/' + str(p)):
-                    yield item
-        elif p in obj:
-            for item in _walk(parts, obj[p], pi+1, path + '/' + str(p)):
-                yield item
-    else:
-        if isinstance(obj,list):
-            for i in range(len(obj)):
-                for item in _walk(parts, obj[i], pi+1, path + '/' + str(i)):
-                    yield item
-        elif isinstance(obj,dict):
-            for (key,val) in obj.items():
-                for item in _walk(parts, val, pi+1, path + '/' + key):
-                    yield item
-
-def _getRef(obj, root):
-    assert isinstance(obj, dict) and '$ref' in obj
-    if len(obj) != 1:
-        raise Exception('Reference object cannot have other attributes: ' + str(obj))
-    ref = obj['$ref']
-    if ref.startswith('http://') or ref.startswith('https://'):
-        # web
-        res = urllib.request.urlopen(ref).read()
-        return json.loads(res.decode('utf-8'))
-    else:
-        # local
-        return get(root, ref)
-
-def _expand(obj, root, attr=[]):
-    if attr:
-        pass
-    else:
-        if isinstance(obj,dict):
-            if '$ref' in obj:
-                trg = _getRef(obj, root)
-                return _expand(trg, root)
+            if key == '*':
+                keys = range(len(current)-1,-1,-1) # we need to iterate in reverse in case these get deleted on the fly
             else:
-                trg = {}
-                for (k,v) in obj.items():
-                    trg[k] = _expand(v, root)
-                return trg
-        elif isinstance(obj,list):
-            trg = []
-            for val in obj:
-                trg.append( _expand(val, root) )
-            return trg
-        else:
-            return obj
+                if not key.isdigit():
+                    raise Exception("Digits expected in path instead of " + key + " at: " + node.path)
+                n = int(key)
+                if n >= len(current):
+                    raise Exception("No such index at path: %s/%d" % (node.path, n))
+                keys = [ n ]
+        elif isinstance(current, dict):
+            if key == '*':
+                keys = current.keys()
+            elif key not in current:
+                raise Exception("No such path: " + node.path + "/" + key)
+            else:
+                keys = [ key ]
+        
+        for key in keys:
+            path = node.path + '/' + str(key)
+            child = Node(path, current, key, current[key])
+            for hit in _walk(child, tail, expander):
+                yield hit
+        
+    if hook_after:
+        hook_after(node)
+                    
+
+def _expand(obj, root, depth=1):
+    if depth == True:
+        depth = 1
+    elif depth <= 0:
+        return obj
     
+    if isRef(obj):
+        trg = _getRef(obj['$ref'], root, external=True)
+        return _expand(trg, root, depth-1)
+    
+    if isinstance(obj,dict):
+        trg = {}
+        for (k,v) in obj.items():
+            trg[k] = _expand(v, root, depth)
+        return trg
+    elif isinstance(obj,list):
+        trg = []
+        for val in obj:
+            trg.append( _expand(val, root, depth) )
+        return trg
+    else:
+        return obj
+
+
+def apply(fun, obj, path, root, filt):
+    if not root:
+        root = obj
+    parts = splitPath(path)
+    modified = []
+    for node in _walk(Node('', None, None, obj), parts, expander=None):
+        if filt and not filt(node):
+            continue
+        fun(node)
+        modified.append(node.path)
+    return modified
+
+def isRef(obj):
+    return (isinstance(obj, dict) and '$ref' in obj)
+
+def set(obj, path, value, root=None, filt=None):
+    parts = splitPath(path)
+    def _set(node):
+        if isRef(node.value):
+            raise Exception('Cannot set value, object is a reference: ' + node.path)
+        node.value[ parts[-1] ] = value
+    return apply(_set, obj, '/'.join(parts[:-1]), root, filt)
+
+ 
+def update(obj, path, value, root=None, filt=None):
+    def _update(node):
+        node.value.update(value)
+    return apply(_update, obj, path, root, filt)
+    
+
+def add(obj, path, value, root=None, filt=None):
+    def _add(node):
+        node.value.append(value)
+    return apply(_add, obj, path, root, filt)
+
+
+def delete(obj, path, root=None, filt=None):
+    parts = splitPath(path)
+    def _delete(node):
+        del node.value[ parts[-1] ]
+    return apply(_delete, obj, '/'.join(parts[:-1]), root, filt)
+
+
+# expands all references
+def DEFAULT_EXPANDER(root):
+    return lambda ref: _getRef(ref, root, True)
+
+# expands only local references
+def LOCAL_EXPANDER(root):
+    return lambda ref: _getRef(ref, root, False)
+
+
+def _getRef(ref, root, external=True):
+    if ref.startswith('/'):
+        return get(root, ref)
+    elif ref.startswith('#'):
+        return get(root, ref[1:])
+    elif not external:
+        raise Exception('External or invalid reference: ' + ref)
+    elif ref.startswith('file:///'):
+        return _loadFile(ref.lstrip('file:///'))
+    elif ref.startswith('file://'):
+        return _loadFile(ref.lstrip('file://'))
+    elif ref.startswith('http://') or ref.startswith('https://'):
+        return _loadHTTP(ref.lstrip('file:///'))
+    else:
+        raise Exception('Invalid reference: ' + ref)
+
+
+#TODO: encoding?
+def _loadFile(path):
+    with open(path) as f:
+        raw = f.read()
+        obj = json.loads(raw)
+        return obj
+
+
+#TODO: encoding?
+def _loadHTTP(url):
+    raw = urllib.request.urlopen(url).read().decode('utf-8')
+    obj = json.loads(raw)
+    return obj
+
