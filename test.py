@@ -48,6 +48,9 @@ assert starpath.get(users, '/charlie/status') == 'Old'
 starpath.delete(users, '*/status')
 assert starpath.get(users, '/charlie') == {'name': 'Charlie', 'friends': []}
 
+starpath.delete(users, '*/friends/*')
+assert list(starpath.find(users, '*/friends')) == [[],[],[]]
+
 exit()
 ### Follow references
 
