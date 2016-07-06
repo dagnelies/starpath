@@ -19,8 +19,17 @@ users = {
     },
     'www_users': {
         '$ref': 'http://www.w3schools.com/website/customers_mysql.php'
-    }
+    },
+    'my_list': [1,2,3]
 }
+
+assert starpath.get(users, 'my_list') == [1,2,3]
+assert starpath.get(users, 'my_list/0') == 1
+starpath.set(users, 'my_list', [4,5,6])
+assert starpath.get(users, 'my_list/0') == 4
+starpath.set(users, 'my_list/0', [999])
+assert starpath.get(users, 'my_list') == [[999], 5, 6]
+
 
 print( starpath.get(users, '/www_users/0') )
 assert starpath.get(users, '/www_users/0/Name') == "Alfreds Futterkiste"

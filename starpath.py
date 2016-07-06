@@ -38,6 +38,7 @@ def get(obj, path='', expander=None):
     for node in _walk(root, parts, expander=expander, strict=True):
         return node.value
 
+        
 def splitPath(path):
     parts = path.strip('/').split('/')
     parts = [p for p in parts if p != '']
@@ -158,7 +159,10 @@ def apply(fun, obj, path, root, filt):
 def isRef(obj):
     return (isinstance(obj, dict) and '$ref' in obj)
 
+# This one differs a bit from the other because the last part of the path doesn't have to exist yet
 def set(obj, path, value, root=None, filt=None):
+    if not path or not path.strip().strip('/'):
+        raise Exception("Invalid path: cannot set root directly.")
     parts = splitPath(path)
     def _set(node):
         if isRef(node.value):
@@ -169,7 +173,11 @@ def set(obj, path, value, root=None, filt=None):
             if key >= len(node.value):
                 raise Exception("Index out of bounds: " + node.path + '/' + str(key))
         node.value[key] = value
-    return apply(_set, obj, '/'.join(parts[:-1]), root, filt)
+    modified = apply(_set, obj, '/'.join(parts[:-1]), root, filt)
+    for i in range(len(modified)):
+        modified[i] = modified[i] + '/' + parts[-1]
+    return modified
+        
 
  
 def update(obj, path, value, root=None, filt=None):
@@ -186,10 +194,12 @@ def add(obj, path, value, root=None, filt=None):
 
 
 def delete(obj, path, root=None, filt=None):
-    parts = splitPath(path)
+    if not path or not path.strip().strip('/'):
+        raise Exception("Invalid path: cannot delete root directly.")
+        
     def _delete(node):
         del node.parent[node.key]
-    return apply(_delete, obj, '/'.join(parts), root, filt)
+    return apply(_delete, obj, path, root, filt)
 
 
 # expands all references

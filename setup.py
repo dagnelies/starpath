@@ -3,7 +3,7 @@ setup(
   name = 'starpath',
   py_modules=['starpath'],
   scripts=['starpath.py'],
-  version = '1.2.1',
+  version = '1.2.3',
   description = 'JSON Pointers with wildcards!',
   author = 'Arnaud Dagnelies',
   author_email = 'arnaud.dagnelies@gmail.com',
